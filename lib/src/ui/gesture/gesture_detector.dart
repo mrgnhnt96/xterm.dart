@@ -3,6 +3,36 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 
+/// How far a touch is allowed to drift, in logical pixels, while still
+/// counting as "held still" for long-press-to-select purposes.
+///
+/// [LongPressGestureRecognizer] defaults this tolerance to the platform's
+/// ambient touch slop, which is the same threshold an ancestor [Scrollable]
+/// uses to decide a drag has started. That means the two recognizers race
+/// the same distance check against a fixed 500ms timeout: a real drag that
+/// starts with a brief, natural pause (or that stays under an unusually
+/// generous platform touch slop) never breaks that tolerance in time, so the
+/// long press wins the gesture arena outright and scrolling is starved for
+/// the rest of that touch, no matter how far the finger moves afterward.
+/// Using a small, fixed tolerance here -- independent of the platform's
+/// (possibly much larger) scroll slop -- makes the long press yield to any
+/// real dragging motion well before its deadline can steal the arena.
+const _kLongPressSelectSlopTolerance = 8.0;
+
+/// A [LongPressGestureRecognizer] with a small, fixed [preAcceptSlopTolerance]
+/// (see [_kLongPressSelectSlopTolerance]) instead of the platform's ambient
+/// touch slop. [LongPressGestureRecognizer]'s own constructor doesn't expose
+/// [preAcceptSlopTolerance], so it's overridden here as a getter instead.
+class _SelectLongPressGestureRecognizer extends LongPressGestureRecognizer {
+  _SelectLongPressGestureRecognizer({
+    super.debugOwner,
+    super.supportedDevices,
+  });
+
+  @override
+  double? get preAcceptSlopTolerance => _kLongPressSelectSlopTolerance;
+}
+
 class TerminalGestureDetector extends StatefulWidget {
   const TerminalGestureDetector({
     super.key,
@@ -122,16 +152,16 @@ class _TerminalGestureDetectorState extends State<TerminalGestureDetector> {
       },
     );
 
-    gestures[LongPressGestureRecognizer] =
-        GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
-      () => LongPressGestureRecognizer(
+    gestures[_SelectLongPressGestureRecognizer] =
+        GestureRecognizerFactoryWithHandlers<_SelectLongPressGestureRecognizer>(
+      () => _SelectLongPressGestureRecognizer(
         debugOwner: this,
         supportedDevices: {
           PointerDeviceKind.touch,
           // PointerDeviceKind.mouse, // for debugging purposes only
         },
       ),
-      (LongPressGestureRecognizer instance) {
+      (_SelectLongPressGestureRecognizer instance) {
         instance
           ..onLongPressStart = widget.onLongPressStart
           ..onLongPressMoveUpdate = widget.onLongPressMoveUpdate

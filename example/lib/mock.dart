@@ -36,7 +36,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   final terminal = Terminal(
-    maxLines: 1000,
+    maxLines: 5000,
   );
 
   late final MockRepl pty;
@@ -48,6 +48,11 @@ class _MyHomePageState extends State<MyHomePage> {
     pty = MockRepl(terminal.write);
 
     terminal.onOutput = pty.write;
+
+    // Scrollback content for exercising touch drag-to-scroll.
+    for (var i = 0; i < 300; i++) {
+      terminal.write('line $i\r\n');
+    }
   }
 
   @override
