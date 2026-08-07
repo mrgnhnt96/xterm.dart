@@ -300,6 +300,7 @@ class TerminalViewState extends State<TerminalView> {
       terminalController: _controller,
       onTapUp: _onTapUp,
       onTapDown: _onTapDown,
+      onSingleTapUp: _onSingleTapUp,
       onSecondaryTapDown: widget.onSecondaryTapDown != null ? _onSecondaryTapDown : null,
       onSecondaryTapUp: widget.onSecondaryTapUp != null ? _onSecondaryTapUp : null,
       readOnly: widget.readOnly,
@@ -341,15 +342,32 @@ class TerminalViewState extends State<TerminalView> {
     widget.onTapUp?.call(details, offset);
   }
 
-  void _onTapDown(_) {
-    if (_controller.selection != null) {
+  // True if a selection was dismissed by the tap-down that is currently in
+  // flight. Used by [_onSingleTapUp] to skip requesting the keyboard for the
+  // same tap that just dismissed a selection.
+  var _dismissedSelectionOnTapDown = false;
+
+  void _onTapDown(TapDownDetails details) {
+    _dismissedSelectionOnTapDown = _controller.selection != null;
+    if (_dismissedSelectionOnTapDown) {
       _controller.clearSelection();
+    }
+  }
+
+  // Requesting the keyboard here (rather than in [_onTapDown]) ensures it
+  // only happens for a gesture the arena actually resolved as a tap. A tap
+  // that turns into a drag/scroll still fires onTapDown eagerly (Flutter
+  // calls it optimistically before the arena resolves), which would
+  // otherwise reopen the keyboard mid-scroll.
+  void _onSingleTapUp(TapUpDetails details) {
+    if (_dismissedSelectionOnTapDown) {
+      return;
+    }
+
+    if (!widget.hardwareKeyboardOnly) {
+      _customTextEditKey.currentState?.requestKeyboard();
     } else {
-      if (!widget.hardwareKeyboardOnly) {
-        _customTextEditKey.currentState?.requestKeyboard();
-      } else {
-        _focusNode.requestFocus();
-      }
+      _focusNode.requestFocus();
     }
   }
 
