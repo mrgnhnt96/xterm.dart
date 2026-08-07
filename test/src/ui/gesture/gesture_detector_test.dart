@@ -67,4 +67,31 @@ void main() {
       },
     );
   });
+
+  group('TerminalView.onTapUp', () {
+    testWidgets('fires with the tapped cell offset', (tester) async {
+      final terminal = Terminal();
+      terminal.write('Hello World');
+
+      CellOffset? tappedOffset;
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TerminalView(
+            terminal,
+            autofocus: true,
+            onTapUp: (details, offset) => tappedOffset = offset,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byType(TerminalView));
+      await tester.pumpAndSettle();
+      // Flush the pending double-tap-detection timer the tap started.
+      await tester.pump(kDoubleTapTimeout);
+
+      expect(tappedOffset, isNotNull);
+    });
+  });
 }
