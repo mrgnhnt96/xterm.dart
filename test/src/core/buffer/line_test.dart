@@ -104,6 +104,25 @@ void main() {
     });
   });
 
+  group('BufferLine.eraseRange()', () {
+    test('does not throw when end is 0', () {
+      final terminal = Terminal();
+      final line = terminal.buffer.lines[0];
+
+      expect(() => line.eraseRange(0, 0, terminal.cursor), returnsNormally);
+    });
+
+    test('erase-line-left with cursor at column 0 does not throw', () {
+      final terminal = Terminal();
+      terminal.write('Hello World');
+
+      // Move cursor to column 0, then send "erase in line" with param 1
+      // (erase from start of line to cursor), the sequence that triggers
+      // Buffer.eraseLineToCursor() -> BufferLine.eraseRange(0, 0, ...).
+      expect(() => terminal.write('\x1b[1G\x1b[1K'), returnsNormally);
+    });
+  });
+
   group('Buffer.createAnchor', () {
     test('works', () {
       final terminal = Terminal();
