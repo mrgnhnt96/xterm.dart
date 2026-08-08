@@ -420,6 +420,100 @@ void main() {
     });
   });
 
+  group('TerminalView IME composing', () {
+    testWidgets('streams composing text to the terminal instead of buffering it',
+        (tester) async {
+      final terminalOutput = <String>[];
+      final terminal = Terminal(onOutput: terminalOutput.add);
+
+      await tester.pumpWidget(MaterialApp(
+        home: TerminalView(terminal, autofocus: true),
+      ));
+
+      await tester.tap(find.byType(TerminalView));
+      await tester.pump(Duration(seconds: 1));
+
+      // Simulate Gboard's word-prediction composing region growing
+      // character by character, the way it reports "c" then "co" while
+      // suggesting "cool" above the keyboard.
+      binding.testTextInput.updateEditingValue(const TextEditingValue(
+        text: 'c',
+        selection: TextSelection.collapsed(offset: 1),
+        composing: TextRange(start: 0, end: 1),
+      ));
+      await binding.idle();
+
+      // Before the composing region commits, the character must already be
+      // at the terminal -- a raw shell should never silently swallow
+      // keystrokes while a word is being predicted.
+      expect(terminalOutput.join(), 'c');
+
+      binding.testTextInput.updateEditingValue(const TextEditingValue(
+        text: 'co',
+        selection: TextSelection.collapsed(offset: 2),
+        composing: TextRange(start: 0, end: 2),
+      ));
+      await binding.idle();
+
+      expect(terminalOutput.join(), 'co');
+
+      // Composing commits with a trailing space; only the new character
+      // should be sent, not the whole word again.
+      binding.testTextInput.updateEditingValue(const TextEditingValue(
+        text: 'co ',
+        selection: TextSelection.collapsed(offset: 3),
+        composing: TextRange.empty,
+      ));
+      await binding.idle();
+
+      expect(terminalOutput.join(), 'co ');
+    });
+
+    testWidgets('reconciles a composing correction instead of duplicating it',
+        (tester) async {
+      final inputHandler = MockTerminalInputHandler();
+      when(inputHandler.call(any)).thenAnswer((invocation) {
+        final event =
+            invocation.positionalArguments[0] as TerminalKeyboardEvent;
+        return event.key == TerminalKey.backspace ? '<BS>' : null;
+      });
+
+      final terminalOutput = <String>[];
+      final terminal = Terminal(
+        inputHandler: inputHandler,
+        onOutput: terminalOutput.add,
+      );
+
+      await tester.pumpWidget(MaterialApp(
+        home: TerminalView(terminal, autofocus: true),
+      ));
+
+      await tester.tap(find.byType(TerminalView));
+      await tester.pump(Duration(seconds: 1));
+
+      binding.testTextInput.updateEditingValue(const TextEditingValue(
+        text: 'coo',
+        selection: TextSelection.collapsed(offset: 3),
+        composing: TextRange(start: 0, end: 3),
+      ));
+      await binding.idle();
+
+      expect(terminalOutput.join(), 'coo');
+
+      // Gboard swaps the candidate to a shorter correction ("co") rather
+      // than extending it -- the already-sent trailing "o" must be deleted,
+      // not left to silently diverge from the remote's copy.
+      binding.testTextInput.updateEditingValue(const TextEditingValue(
+        text: 'co',
+        selection: TextSelection.collapsed(offset: 2),
+        composing: TextRange(start: 0, end: 2),
+      ));
+      await binding.idle();
+
+      expect(terminalOutput.join(), 'coo<BS>');
+    });
+  });
+
   group('TerminalView.simulateScroll', () {
     testWidgets('works', (tester) async {
       final terminalOutput = <String>[];

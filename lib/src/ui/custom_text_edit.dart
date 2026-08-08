@@ -197,6 +197,16 @@ class CustomTextEditState extends State<CustomTextEdit> with TextInputClient {
 
   late var _currentEditingState = _initEditingState.copyWith();
 
+  // The portion of the current composing/typed text (beyond
+  // [_initEditingState]) already forwarded via [onInsert]/[onDelete]. IME
+  // composing (e.g. Gboard word prediction) reports the same growing text as
+  // a series of updates rather than one final value, so characters must be
+  // streamed out as they're composed -- otherwise a raw shell session would
+  // silently swallow keystrokes until the composition commits. This tracks
+  // what's already been sent so [_syncTypedText] only sends the difference,
+  // whether the composing text grew, shrank, or was replaced.
+  var _sentComposingText = '';
+
   @override
   TextEditingValue? get currentTextEditingValue {
     return _currentEditingState;
@@ -211,11 +221,13 @@ class CustomTextEditState extends State<CustomTextEdit> with TextInputClient {
   void updateEditingValue(TextEditingValue value) {
     _currentEditingState = value;
 
-    // Get input after composing is done
+    // Stream composing text out as it's typed, rather than waiting for it to
+    // commit -- see [_sentComposingText].
     if (!_currentEditingState.composing.isCollapsed) {
       final text = _currentEditingState.text;
       final composingText = _currentEditingState.composing.textInside(text);
       widget.onComposing(composingText);
+      _syncTypedText(composingText);
       return;
     }
 
@@ -223,12 +235,14 @@ class CustomTextEditState extends State<CustomTextEdit> with TextInputClient {
 
     if (_currentEditingState.text.length < _initEditingState.text.length) {
       widget.onDelete();
+      _sentComposingText = '';
     } else {
       final textDelta = _currentEditingState.text.substring(
         _initEditingState.text.length,
       );
 
-      widget.onInsert(textDelta);
+      _syncTypedText(textDelta);
+      _sentComposingText = '';
     }
 
     // Reset editing state if composing is done
@@ -236,6 +250,32 @@ class CustomTextEditState extends State<CustomTextEdit> with TextInputClient {
         _currentEditingState.text != _initEditingState.text) {
       _connection!.setEditingState(_initEditingState);
     }
+  }
+
+  // Reconciles [_sentComposingText] with [target] by deleting any
+  // already-sent trailing characters [target] no longer has, then inserting
+  // whatever's new -- so growing, shrinking, or replacing composing text
+  // (e.g. a word-prediction correction) only ever sends the difference.
+  void _syncTypedText(String target) {
+    final maxCommon = _sentComposingText.length < target.length
+        ? _sentComposingText.length
+        : target.length;
+
+    var commonLength = 0;
+    while (commonLength < maxCommon &&
+        _sentComposingText[commonLength] == target[commonLength]) {
+      commonLength++;
+    }
+
+    for (var i = _sentComposingText.length; i > commonLength; i--) {
+      widget.onDelete();
+    }
+
+    if (commonLength < target.length) {
+      widget.onInsert(target.substring(commonLength));
+    }
+
+    _sentComposingText = target;
   }
 
   @override
