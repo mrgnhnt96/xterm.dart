@@ -271,10 +271,7 @@ class TerminalViewState extends State<TerminalView> {
         keyboardAppearance: widget.keyboardAppearance,
         deleteDetection: widget.deleteDetection,
         onInsert: _onInsert,
-        onDelete: () {
-          _scrollToBottom();
-          widget.terminal.keyInput(TerminalKey.backspace);
-        },
+        onDelete: _onDelete,
         onComposing: _onComposing,
         onAction: (action) {
           _scrollToBottom();
@@ -423,6 +420,43 @@ class TerminalViewState extends State<TerminalView> {
 
   void _onComposing(String? text) {
     setState(() => _composingText = text);
+  }
+
+  // If a selection is active (e.g. from double-tap-to-select-word), deletes
+  // the whole selection instead of one character at the cursor -- but only
+  // when the selection is entirely on the cursor's own row. A remote line
+  // editor can only edit the line its cursor is actually on, so a selection
+  // elsewhere (a different row, or scrollback) has nothing live to delete;
+  // clearing it and skipping the backspace still matches what tapping
+  // backspace on a plain selection is expected to do (dismiss it).
+  void _onDelete() {
+    _scrollToBottom();
+
+    final selection = _controller.selection?.normalized;
+    if (selection == null) {
+      widget.terminal.keyInput(TerminalKey.backspace);
+      return;
+    }
+
+    final cursorY = widget.terminal.buffer.absoluteCursorY;
+    if (selection.begin.y == cursorY && selection.end.y == cursorY) {
+      final cursorX = widget.terminal.buffer.cursorX;
+      final targetX = selection.end.x;
+
+      for (var x = cursorX; x < targetX; x++) {
+        widget.terminal.keyInput(TerminalKey.arrowRight);
+      }
+      for (var x = cursorX; x > targetX; x--) {
+        widget.terminal.keyInput(TerminalKey.arrowLeft);
+      }
+
+      final width = selection.end.x - selection.begin.x;
+      for (var i = 0; i < width; i++) {
+        widget.terminal.keyInput(TerminalKey.backspace);
+      }
+    }
+
+    _controller.clearSelection();
   }
 
   KeyEventResult _handleKeyEvent(FocusNode focusNode, KeyEvent event) {

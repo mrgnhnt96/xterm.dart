@@ -584,6 +584,143 @@ void main() {
     });
   });
 
+  group('TerminalView selection-aware delete', () {
+    testWidgets('deletes the whole selection when it is on the cursor row',
+        (tester) async {
+      final inputHandler = MockTerminalInputHandler();
+      when(inputHandler.call(any)).thenAnswer((invocation) {
+        final event =
+            invocation.positionalArguments[0] as TerminalKeyboardEvent;
+        switch (event.key) {
+          case TerminalKey.arrowLeft:
+            return '<L>';
+          case TerminalKey.arrowRight:
+            return '<R>';
+          case TerminalKey.backspace:
+            return '<BS>';
+          default:
+            return null;
+        }
+      });
+
+      final terminalOutput = <String>[];
+      final terminal = Terminal(
+        inputHandler: inputHandler,
+        onOutput: terminalOutput.add,
+      );
+      terminal.write('hello world');
+
+      final controller = TerminalController();
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TerminalView(
+            terminal,
+            controller: controller,
+            autofocus: true,
+            deleteDetection: true,
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(seconds: 1));
+
+      await tester.tap(find.byType(TerminalView));
+      await tester.pump(const Duration(seconds: 1));
+
+      // Selects "hello" (columns 0-4) the same way double-tap-to-select
+      // does, while the real cursor sits at column 11 (end of "world").
+      final boundary = terminal.buffer.getWordBoundary(const CellOffset(0, 0))!;
+      controller.setSelection(
+        terminal.buffer.createAnchorFromOffset(boundary.begin),
+        terminal.buffer.createAnchorFromOffset(boundary.end),
+        mode: SelectionMode.line,
+      );
+
+      // The software keyboard's backspace glyph, via deleteDetection.
+      binding.testTextInput.updateEditingValue(const TextEditingValue(
+        text: ' ',
+        selection: TextSelection.collapsed(offset: 1),
+      ));
+      await binding.idle();
+      await tester.pump();
+
+      // Cursor moves from column 11 to column 5 (6 lefts), then 5
+      // backspaces remove "hello" (columns 0-4).
+      expect(terminalOutput.join(), '<L>' * 6 + '<BS>' * 5);
+      expect(controller.selection, isNull);
+    });
+
+    testWidgets('only clears the selection when it is on a different row',
+        (tester) async {
+      final terminalOutput = <String>[];
+      final terminal = Terminal(onOutput: terminalOutput.add);
+      terminal.write('hello\r\nworld');
+
+      final controller = TerminalController();
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TerminalView(
+            terminal,
+            controller: controller,
+            autofocus: true,
+            deleteDetection: true,
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(seconds: 1));
+
+      await tester.tap(find.byType(TerminalView));
+      await tester.pump(const Duration(seconds: 1));
+
+      // "hello" is on row 0; the real cursor is on row 1, after "world".
+      final boundary = terminal.buffer.getWordBoundary(const CellOffset(0, 0))!;
+      controller.setSelection(
+        terminal.buffer.createAnchorFromOffset(boundary.begin),
+        terminal.buffer.createAnchorFromOffset(boundary.end),
+        mode: SelectionMode.line,
+      );
+
+      binding.testTextInput.updateEditingValue(const TextEditingValue(
+        text: ' ',
+        selection: TextSelection.collapsed(offset: 1),
+      ));
+      await binding.idle();
+      await tester.pump();
+
+      // Nothing live to delete on the cursor's own line -- no arrow keys,
+      // no backspace, just the selection clearing.
+      expect(terminalOutput, isEmpty);
+      expect(controller.selection, isNull);
+    });
+
+    testWidgets('sends a single backspace when there is no selection',
+        (tester) async {
+      final terminalOutput = <String>[];
+      final terminal = Terminal(onOutput: terminalOutput.add);
+      terminal.write('hi');
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TerminalView(terminal, autofocus: true, deleteDetection: true),
+        ),
+      ));
+      await tester.pump(const Duration(seconds: 1));
+
+      await tester.tap(find.byType(TerminalView));
+      await tester.pump(const Duration(seconds: 1));
+
+      binding.testTextInput.updateEditingValue(const TextEditingValue(
+        text: ' ',
+        selection: TextSelection.collapsed(offset: 1),
+      ));
+      await binding.idle();
+      await tester.pump();
+
+      expect(terminalOutput.join().codeUnits, [0x7f]);
+    });
+  });
+
   group('TerminalView.simulateScroll', () {
     testWidgets('works', (tester) async {
       final terminalOutput = <String>[];
