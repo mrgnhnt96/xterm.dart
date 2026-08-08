@@ -249,6 +249,15 @@ class CustomTextEditState extends State<CustomTextEdit> with TextInputClient {
     if (_currentEditingState.composing.isCollapsed &&
         _currentEditingState.text != _initEditingState.text) {
       _connection!.setEditingState(_initEditingState);
+
+      // Keep our own bookkeeping in lockstep with what we just told the
+      // platform, since currentTextEditingValue (below) can be queried by
+      // the platform at any time -- e.g. Android's IME re-syncing its own
+      // buffer when the input connection is shown again, which happens on
+      // every tap via requestKeyboard(). Leaving this stale meant such a
+      // re-sync could hand the IME back already-sent characters, which it
+      // would then include again in the next real keystroke it reports.
+      _currentEditingState = _initEditingState.copyWith();
     }
   }
 
