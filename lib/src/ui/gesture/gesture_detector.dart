@@ -38,6 +38,7 @@ class TerminalGestureDetector extends StatefulWidget {
     super.key,
     this.child,
     this.onSingleTapUp,
+    this.onSingleTapConfirmed,
     this.onTapUp,
     this.onTapDown,
     this.onSecondaryTapDown,
@@ -57,6 +58,14 @@ class TerminalGestureDetector extends StatefulWidget {
   final GestureTapUpCallback? onTapUp;
 
   final GestureTapUpCallback? onSingleTapUp;
+
+  /// Like [onSingleTapUp], but only invoked once it's certain the tap isn't
+  /// the first half of a double-tap -- i.e. it's held for [kDoubleTapTimeout]
+  /// and discarded if a second tap arrives in that window. Unlike
+  /// [onSingleTapUp], which is already skipped for the *second* tap of a
+  /// double-tap, this also skips the *first* tap, at the cost of firing
+  /// [kDoubleTapTimeout] later than the gesture itself.
+  final GestureTapUpCallback? onSingleTapConfirmed;
 
   final GestureTapDownCallback? onTapDown;
 
@@ -94,6 +103,17 @@ class _TerminalGestureDetectorState extends State<TerminalGestureDetector> {
   // subsequent tap up / tap hold of the same tap.
   bool _isDoubleTap = false;
 
+  // The most recent single tap-up, held until [_doubleTapTimer] confirms no
+  // second tap arrived, at which point it's reported via
+  // [TerminalGestureDetector.onSingleTapConfirmed].
+  TapUpDetails? _pendingSingleTapDetails;
+
+  @override
+  void dispose() {
+    _doubleTapTimer?.cancel();
+    super.dispose();
+  }
+
   // The down handler is force-run on success of a single tap and optimistically
   // run before a long press success.
   void _handleTapDown(TapDownDetails details) {
@@ -102,7 +122,8 @@ class _TerminalGestureDetectorState extends State<TerminalGestureDetector> {
     if (_doubleTapTimer != null &&
         _isWithinDoubleTapTolerance(details.globalPosition)) {
       // If there was already a previous tap, the second down hold/tap is a
-      // double tap down.
+      // double tap down. The pending single tap never gets confirmed -- it
+      // was the first half of this double tap, not a tap of its own.
       widget.onDoubleTapDown?.call(details);
 
       _doubleTapTimer!.cancel();
@@ -117,14 +138,28 @@ class _TerminalGestureDetectorState extends State<TerminalGestureDetector> {
     if (!_isDoubleTap) {
       widget.onSingleTapUp?.call(details);
       _lastTapOffset = details.globalPosition;
-      _doubleTapTimer = Timer(kDoubleTapTimeout, _doubleTapTimeout);
+      _pendingSingleTapDetails = details;
+      _doubleTapTimer = Timer(kDoubleTapTimeout, _confirmPendingSingleTap);
     }
     _isDoubleTap = false;
+  }
+
+  // Only reached when [_doubleTapTimer] elapses on its own -- if a second tap
+  // arrived in time, [_handleTapDown] already cancelled it via
+  // [_doubleTapTimeout], so this tap is now confirmed to not be part of a
+  // double-tap.
+  void _confirmPendingSingleTap() {
+    final details = _pendingSingleTapDetails;
+    _doubleTapTimeout();
+    if (details != null) {
+      widget.onSingleTapConfirmed?.call(details);
+    }
   }
 
   void _doubleTapTimeout() {
     _doubleTapTimer = null;
     _lastTapOffset = null;
+    _pendingSingleTapDetails = null;
   }
 
   bool _isWithinDoubleTapTolerance(Offset secondTapOffset) {

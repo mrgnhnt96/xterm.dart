@@ -514,6 +514,76 @@ void main() {
     });
   });
 
+  group('TerminalView.onSingleTapConfirmed', () {
+    testWidgets('fires for a plain tap, after the double-tap window',
+        (tester) async {
+      final terminal = Terminal();
+
+      final tapUpCells = <int>[];
+      final confirmedCells = <int>[];
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TerminalView(
+            terminal,
+            autofocus: true,
+            onTapUp: (details, offset) => tapUpCells.add(offset.x),
+            onSingleTapConfirmed: (details, offset) =>
+                confirmedCells.add(offset.x),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tapAt(tester.getCenter(find.byType(TerminalView)));
+      await tester.pump();
+
+      // onTapUp fires immediately -- onSingleTapConfirmed does not, yet.
+      expect(tapUpCells, hasLength(1));
+      expect(confirmedCells, isEmpty);
+
+      await tester.pump(kDoubleTapTimeout);
+
+      expect(confirmedCells, hasLength(1));
+    });
+
+    testWidgets('never fires for either tap of a double-tap', (tester) async {
+      final terminal = Terminal();
+
+      final tapUpCells = <int>[];
+      final confirmedCells = <int>[];
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TerminalView(
+            terminal,
+            autofocus: true,
+            onTapUp: (details, offset) => tapUpCells.add(offset.x),
+            onSingleTapConfirmed: (details, offset) =>
+                confirmedCells.add(offset.x),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final position = tester.getCenter(find.byType(TerminalView));
+
+      await tester.tapAt(position);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(position);
+      await tester.pump();
+
+      // Both taps of the double-tap still reach onTapUp...
+      expect(tapUpCells, hasLength(2));
+
+      // ...but neither is ever confirmed as a single tap, even once the
+      // double-tap window has fully elapsed.
+      await tester.pump(kDoubleTapTimeout);
+
+      expect(confirmedCells, isEmpty);
+    });
+  });
+
   group('TerminalView.simulateScroll', () {
     testWidgets('works', (tester) async {
       final terminalOutput = <String>[];

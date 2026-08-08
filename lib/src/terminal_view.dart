@@ -35,6 +35,7 @@ class TerminalView extends StatefulWidget {
     this.focusNode,
     this.autofocus = false,
     this.onTapUp,
+    this.onSingleTapConfirmed,
     this.onSecondaryTapDown,
     this.onSecondaryTapUp,
     this.mouseCursor = SystemMouseCursors.text,
@@ -84,8 +85,22 @@ class TerminalView extends StatefulWidget {
   /// node in its scope is currently focused.
   final bool autofocus;
 
-  /// Callback for when the user taps on the terminal.
+  /// Callback for when the user taps on the terminal. Fires immediately on
+  /// every tap-up, including both taps of a double-tap. If a double-tap
+  /// happening also matters to your handler, prefer [onSingleTapConfirmed]
+  /// so it isn't also triggered by the tap that starts a
+  /// double-tap-to-select gesture.
   final void Function(TapUpDetails, CellOffset)? onTapUp;
+
+  /// Like [onTapUp], but only fires once it's certain the tap isn't the
+  /// first half of a double-tap -- i.e. it's held for the same
+  /// double-tap-detection window used internally (currently
+  /// [kDoubleTapTimeout]) before firing. Use this instead of [onTapUp] for
+  /// actions that must not also fire from a double-tap-to-select gesture,
+  /// such as repositioning the cursor. Because of that delay, prefer
+  /// [onTapUp] for anything where double-firing is harmless (e.g. opening a
+  /// link), since it responds immediately.
+  final void Function(TapUpDetails, CellOffset)? onSingleTapConfirmed;
 
   /// Function called when the user taps on the terminal with a secondary
   /// button.
@@ -301,6 +316,7 @@ class TerminalViewState extends State<TerminalView> {
       onTapUp: _onTapUp,
       onTapDown: _onTapDown,
       onSingleTapUp: _onSingleTapUp,
+      onSingleTapConfirmed: _onSingleTapConfirmed,
       onSecondaryTapDown: widget.onSecondaryTapDown != null ? _onSecondaryTapDown : null,
       onSecondaryTapUp: widget.onSecondaryTapUp != null ? _onSecondaryTapUp : null,
       readOnly: widget.readOnly,
@@ -369,6 +385,11 @@ class TerminalViewState extends State<TerminalView> {
     } else {
       _focusNode.requestFocus();
     }
+  }
+
+  void _onSingleTapConfirmed(TapUpDetails details) {
+    final offset = renderTerminal.getCellOffset(details.localPosition);
+    widget.onSingleTapConfirmed?.call(details, offset);
   }
 
   void _onSecondaryTapDown(TapDownDetails details) {
