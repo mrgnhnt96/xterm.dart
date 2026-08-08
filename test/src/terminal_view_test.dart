@@ -719,6 +719,68 @@ void main() {
 
       expect(terminalOutput.join().codeUnits, [0x7f]);
     });
+
+    testWidgets(
+        'also deletes the whole selection via a hardware backspace key event',
+        (tester) async {
+      final inputHandler = MockTerminalInputHandler();
+      when(inputHandler.call(any)).thenAnswer((invocation) {
+        final event =
+            invocation.positionalArguments[0] as TerminalKeyboardEvent;
+        switch (event.key) {
+          case TerminalKey.arrowLeft:
+            return '<L>';
+          case TerminalKey.arrowRight:
+            return '<R>';
+          case TerminalKey.backspace:
+            return '<BS>';
+          default:
+            return null;
+        }
+      });
+
+      final terminalOutput = <String>[];
+      final terminal = Terminal(
+        inputHandler: inputHandler,
+        onOutput: terminalOutput.add,
+      );
+      terminal.write('hello world');
+
+      final controller = TerminalController();
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TerminalView(
+            terminal,
+            controller: controller,
+            autofocus: true,
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(seconds: 1));
+
+      await tester.tap(find.byType(TerminalView));
+      await tester.pump(const Duration(seconds: 1));
+
+      final boundary = terminal.buffer.getWordBoundary(const CellOffset(0, 0))!;
+      controller.setSelection(
+        terminal.buffer.createAnchorFromOffset(boundary.begin),
+        terminal.buffer.createAnchorFromOffset(boundary.end),
+        mode: SelectionMode.line,
+      );
+
+      // Backspace delivered as a genuine hardware-style KeyEvent, bypassing
+      // CustomTextEdit.onDelete entirely -- the path a real Android
+      // keyboard's on-screen backspace glyph can (and per a real-device
+      // report, does) take instead of the deleteDetection editingValue
+      // shrink the other test in this group exercises.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.backspace);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+
+      expect(terminalOutput.join(), '<L>' * 6 + '<BS>' * 5);
+      expect(controller.selection, isNull);
+    });
   });
 
   group('TerminalView.simulateScroll', () {

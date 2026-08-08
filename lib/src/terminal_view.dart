@@ -422,6 +422,14 @@ class TerminalViewState extends State<TerminalView> {
     setState(() => _composingText = text);
   }
 
+  void _onDelete() {
+    _scrollToBottom();
+
+    if (!_deleteSelectionIfActive()) {
+      widget.terminal.keyInput(TerminalKey.backspace);
+    }
+  }
+
   // If a selection is active (e.g. from double-tap-to-select-word), deletes
   // the whole selection instead of one character at the cursor -- but only
   // when the selection is entirely on the cursor's own row. A remote line
@@ -429,13 +437,17 @@ class TerminalViewState extends State<TerminalView> {
   // elsewhere (a different row, or scrollback) has nothing live to delete;
   // clearing it and skipping the backspace still matches what tapping
   // backspace on a plain selection is expected to do (dismiss it).
-  void _onDelete() {
-    _scrollToBottom();
-
+  //
+  // Returns false if there was no selection to handle, so the caller can
+  // fall back to sending a normal backspace itself. Called from both
+  // CustomTextEdit.onDelete (the software-keyboard/deleteDetection path) and
+  // _handleKeyEvent (the hardware-key-event path) -- backspace can arrive
+  // via either depending on platform/IME, so both need to be aware of the
+  // selection, not just the one this feature happened to be built against.
+  bool _deleteSelectionIfActive() {
     final selection = _controller.selection?.normalized;
     if (selection == null) {
-      widget.terminal.keyInput(TerminalKey.backspace);
-      return;
+      return false;
     }
 
     final cursorY = widget.terminal.buffer.absoluteCursorY;
@@ -457,6 +469,7 @@ class TerminalViewState extends State<TerminalView> {
     }
 
     _controller.clearSelection();
+    return true;
   }
 
   KeyEventResult _handleKeyEvent(FocusNode focusNode, KeyEvent event) {
@@ -483,6 +496,17 @@ class TerminalViewState extends State<TerminalView> {
 
     if (key == null) {
       return KeyEventResult.ignored;
+    }
+
+    final noModifiers = !HardwareKeyboard.instance.isControlPressed &&
+        !HardwareKeyboard.instance.isAltPressed &&
+        !HardwareKeyboard.instance.isShiftPressed;
+
+    if (key == TerminalKey.backspace &&
+        noModifiers &&
+        _deleteSelectionIfActive()) {
+      _scrollToBottom();
+      return KeyEventResult.handled;
     }
 
     final handled = widget.terminal.keyInput(
